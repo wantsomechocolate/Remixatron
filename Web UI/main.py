@@ -26,9 +26,13 @@ import sys
 import urllib.parse
 import tempfile
 
+
+
+
 from flask import Flask, current_app, g, make_response, redirect, request, send_from_directory, session, url_for
 from flask_compress import Compress
 from flask_socketio import SocketIO, emit, send, join_room, leave_room
+from flask_cors import CORS
 
 from multiprocessing import Process
 from pathlib import Path
@@ -42,6 +46,7 @@ if not sys.warnoptions:
     warnings.simplefilter("ignore")
 
 app = Flask(__name__)
+CORS(app)
 
 # make sure that any files we send expire really quickly so caching
 # doesn't screw up playback
@@ -56,10 +61,23 @@ socketio = None
 # make sure the .remixatron directory exists in the home dir of the running
 # user. If not, create it. Then store it for later.
 
-remixatron_dir = (Path.home() / '.remixatron')
+path_home = '/mnt/c/Users/JamesM/Projects/Media/Remixatron'
+
+#remixatron_dir = (Path.home() / '.remixatron')
+remixatron_dir = Path(os.path.join(path_home, '.remixatron'))
 
 if remixatron_dir.exists() == False:
     os.mkdir(remixatron_dir)
+
+## tmp_dir is returning just /tmp which is only accessible via ubuntu and I need it to be accessible via windows
+## So I'm going to replace all instances of that with the following:
+## '/mnt/c/Users/JamesM/Projects/Media/Remixatron/tmp' and see what happens
+
+tmp_dir = os.path.join(remixatron_dir,'tmp')
+if Path(tmp_dir).exists() == False:
+    os.mkdir(tmp_dir)
+
+
 
 # the cors.cfg file defines which domains will be trusted for connections. The
 # default entry of localhost:8000 will be fine if you are running the web
@@ -204,7 +222,7 @@ def fetch_from_youtube(url, userid):
     # download the file (audio only) at the highest quality and save it in /tmp
     try:
 
-        tmpfile = tempfile.gettempdir() + '/' + userid + '.tmp'
+        tmpfile = tmp_dir + '/' + userid + '.tmp'
 
         cmd = ['yt-dlp', '--write-info-json', '-x', '--audio-format', 'wav', 
                '-f', 'bestaudio', '--no-playlist', '-o', tmpfile, url]
@@ -229,7 +247,7 @@ def fetch_from_youtube(url, userid):
         fn = tmpfile
 
     # # save as ogg
-    # of = tempfile.gettempdir() + '/' + userid + '.ogg'
+    # of = tmp_dir + '/' + userid + '.ogg'
 
     # os.rename( fn, of )
     # return of
@@ -248,9 +266,11 @@ def fetch_from_local(fn, userid):
     """
 
     # trim silence from the ends and save as ogg
-    of = tempfile.gettempdir() + '/' + userid + '.ogg'
+    #of = tmp_dir + '/' + userid + '.ogg'
+    of = tmp_dir + '/' + userid + '.wav'
 
-    post_status_message(userid, 0.1, "Saving as .ogg file...")
+    #post_status_message(userid, 0.1, "Saving as .ogg file...")
+    post_status_message(userid, 0.1, "Saving as .wav file...")
 
     subprocess.run(['ffmpeg', '-y', '-i', fn, of],
                     stderr=subprocess.PIPE, stdout=subprocess.PIPE)
@@ -259,6 +279,7 @@ def fetch_from_local(fn, userid):
     os.remove(fn)
 
     # return the name of the trimmed file
+    #print(of)
     return of
 
 @app.route('/healthcheck')
@@ -449,7 +470,7 @@ def process_audio(url, userid, isupload=False, clusters=0, useCache=True):
                                   start_beat=0, do_async=False)
 
 
-        with open(tempfile.gettempdir() + '/' + userid + '.clusterscores', 'w') as f:
+        with open(tmp_dir + '/' + userid + '.clusterscores', 'w') as f:
             f.write(json.dumps(jukebox.cluster_ratio_log))
 
         beats = jukebox.beats
@@ -478,7 +499,7 @@ def process_audio(url, userid, isupload=False, clusters=0, useCache=True):
                                     progress_callback=remixatron_callback,
                                     start_beat=0, do_async=False, starting_beat_cache=beats)
         if clusters == 0:
-            with open(tempfile.gettempdir() + '/' + userid + '.clusterscores', 'w') as f:
+            with open(tmp_dir + '/' + userid + '.clusterscores', 'w') as f:
                 f.write(json.dumps(jukebox.cluster_ratio_log))
 
         beats = jukebox.beats
@@ -498,13 +519,13 @@ def process_audio(url, userid, isupload=False, clusters=0, useCache=True):
 
         beatmap.append(b)
 
-    with open(tempfile.gettempdir() + '/' + userid + '.beatmap', 'w') as f:
+    with open(tmp_dir + '/' + userid + '.beatmap', 'w') as f:
         f.write(json.dumps(beatmap))
 
     # save off a 1024 * 1024 vector of beats to play. This is the random(ish)ly
     # generated play path through the song.
 
-    with open(tempfile.gettempdir() + '/' + userid + '.playvector', 'w') as f:
+    with open(tmp_dir + '/' + userid + '.playvector', 'w') as f:
         f.write(json.dumps(play_vector))
 
     # signal the client that we're done processing
@@ -586,7 +607,7 @@ def get_beatmap():
 
     json = ""
 
-    with open(tempfile.gettempdir() + '/' + get_userid() + '.beatmap', 'r') as f:
+    with open(tmp_dir + '/' + get_userid() + '.beatmap', 'r') as f:
         json = f.readlines()
 
     return json[0], [('Content-Type', 'application/json'),
@@ -604,7 +625,7 @@ def get_playvector():
 
     json = ""
 
-    with open(tempfile.gettempdir() + '/' + get_userid() + '.playvector', 'r') as f:
+    with open(tmp_dir + '/' + get_userid() + '.playvector', 'r') as f:
         json = f.readlines()
 
     return json[0], [('Content-Type', 'application/json'),
@@ -618,13 +639,16 @@ def get_audio():
         flask.Response: the audio file to play
     """
 
-    input_file = tempfile.gettempdir() + '/' + get_userid() + '.wav'
-    output_file = tempfile.gettempdir() + '/' + get_userid() + '.mp3'
+    input_file = tmp_dir + '/' + get_userid() + '.wav'
+    #input_file = tmp_dir + '/' + get_userid() + '.ogg'
+    output_file = tmp_dir + '/' + get_userid() + '.mp3'
+    #print(input_file)
+    #print(output_file)
 
     cmd = ['ffmpeg', '-i', input_file, '-b:a', '192K', output_file]
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    return send_from_directory(tempfile.gettempdir() + '/', get_userid() + '.mp3', cache_timeout=0)
+    return send_from_directory(tmp_dir + '/', get_userid() + '.mp3') #, cache_timeout=0)
 
 @app.route('/trackinfo')
 def get_trackinfo():
@@ -639,7 +663,7 @@ def get_trackinfo():
 
     jsonStr = ""
 
-    with open(tempfile.gettempdir() + '/' + get_userid() + '.tmp.info.json', 'r') as f:
+    with open(tmp_dir + '/' + get_userid() + '.tmp.info.json', 'r') as f:
         jsonStr = f.readlines()
 
     json_data = json.loads(jsonStr[0])
@@ -664,7 +688,7 @@ def get_lastClusterScores():
 
     jsonStr = ""
 
-    with open(tempfile.gettempdir() + '/' + get_userid() + '.clusterscores', 'r') as f:
+    with open(tmp_dir + '/' + get_userid() + '.clusterscores', 'r') as f:
         jsonStr = f.readlines()
 
     json_data = json.loads(jsonStr[0])
@@ -811,7 +835,7 @@ def cleanup():
         flask.Response: HTTP 200 OK
     """
 
-    fileList = glob.glob(tempfile.gettempdir() + '/' + get_userid() + '*')
+    fileList = glob.glob(tmp_dir + '/' + get_userid() + '*')
 
     for file in fileList:
 
@@ -838,14 +862,14 @@ def upload_audio():
 
     # save the uploaded file
 
-    of = tempfile.gettempdir() + '/' +deviceid + '.tmp'
+    of = tmp_dir + '/' +deviceid + '.tmp'
     file.save(of)
 
     print( deviceid + ' uploaded: ' + file.filename )
 
     # save off the track info
 
-    with open(tempfile.gettempdir() + '/' + deviceid + '.tmp.info.json', 'w') as f:
+    with open(tmp_dir + '/' + deviceid + '.tmp.info.json', 'w') as f:
         j = {'title': file.filename, 'thumbnail':'/static/favicon.ico'}
         f.write(json.dumps(j))
 

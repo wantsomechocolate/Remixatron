@@ -1,0 +1,19 @@
+On fresh install of wsl ubuntu
+
+sudo apt-get update
+sudo apt install pkg-config ffmpeg yt-dlp dbus
+
+You may also need
+sudo apt install libdbus-1-3 libdbus-1-dev libcairo2-dev pkg-config python3-dev
+
+pip install virtualenv
+
+source env/bin/activate
+
+comment out Cython, numpy, and dbus-python from requirements.txt
+
+pip install Cython
+pip install numpy
+pip install dbus-next
+pip install -r requirements.txt
+
